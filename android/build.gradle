@@ -1,0 +1,297 @@
+// Read current version from properties file
+ext.versionFile = file('version.properties')
+
+task loadVersion {
+    project.version = readVersion()
+}
+
+ProjectVersion readVersion() {
+    logger.quiet 'Reading the android version file.'
+
+    if (!versionFile.exists()) {
+        throw new GradleException("Required version file does not exit: $versionFile.canonicalPath")
+    }
+
+    Properties versionProps = new Properties()
+
+    versionFile.withInputStream { stream ->
+        versionProps.load(stream)
+    }
+
+    new ProjectVersion(versionProps.major.toInteger(), versionProps.minor.toInteger(), versionProps.patch.toInteger(), versionProps.build.toInteger())
+}
+
+android {
+    buildToolsVersion "19.1.0"
+    compileSdkVersion 19
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = ['src']
+            aidl.srcDirs = ['src']
+            renderscript.srcDirs = ['src']
+            res.srcDirs = ['res']
+            assets.srcDirs = ['assets']
+        }
+
+        instrumentTest.setRoot('tests')
+    }
+	
+	signingConfigs {
+        release {
+            storeFile file( System.getProperty("user.home") + "/.android/debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+        }
+    }
+	
+}
+
+// needed to add JNI shared libraries to APK when compiling on CLI
+tasks.withType(com.android.build.gradle.tasks.PackageApplication) { pkgTask ->
+    pkgTask.jniFolders = new HashSet<File>()
+    pkgTask.jniFolders.add(new File(projectDir, 'libs'))
+}
+
+// called every time gradle gets executed, takes the native dependencies of
+// the natives configuration, and extracts them to the proper libs/ folders
+// so they get packed with the APK.
+task copyAndroidNatives() { 
+    file("libs/armeabi/").mkdirs();
+    file("libs/armeabi-v7a/").mkdirs();
+    file("libs/x86/").mkdirs();
+
+    configurations.natives.files.each { jar ->
+        def outputDir = null
+        if(jar.name.endsWith("natives-armeabi-v7a.jar")) outputDir = file("libs/armeabi-v7a")
+        if(jar.name.endsWith("natives-armeabi.jar")) outputDir = file("libs/armeabi")
+        if(jar.name.endsWith("natives-x86.jar")) outputDir = file("libs/x86")
+        if(outputDir != null) {
+            copy {
+                from zipTree(jar)
+                into outputDir
+                include "*.so"
+            }
+        }
+    }
+}
+
+task run(type: Exec) {
+    def adb = "$System.env.ANDROID_HOME/platform-tools/adb"
+    commandLine "$adb", 'shell', 'am', 'start', '-n', 'com.jemchicomac.one-click-deployment.android/com.jemchicomac.one-click-deployment.android.AndroidLauncher'
+}
+
+// sets up the Android Eclipse project, using the old Ant based build.
+eclipse {
+    // need to specify Java source sets explicitely, SpringSource Gradle Eclipse plugin
+    // ignores any nodes added in classpath.file.withXml
+    sourceSets {
+        main {
+            java.srcDirs "src", 'gen'
+        }
+    }
+
+    jdt {
+        sourceCompatibility = 1.6
+        targetCompatibility = 1.6
+    }
+
+    classpath {
+        plusConfigurations += project.configurations.compile        
+        containers 'com.android.ide.eclipse.adt.ANDROID_FRAMEWORK', 'com.android.ide.eclipse.adt.LIBRARIES'       
+    }
+
+    project {
+        name = appName + "-android"
+        natures 'com.android.ide.eclipse.adt.AndroidNature'
+        buildCommands.clear();
+        buildCommand "com.android.ide.eclipse.adt.ResourceManagerBuilder"
+        buildCommand "com.android.ide.eclipse.adt.PreCompilerBuilder"
+        buildCommand "org.eclipse.jdt.core.javabuilder"
+        buildCommand "com.android.ide.eclipse.adt.ApkBuilder"
+    }
+}
+
+// sets up the Android Idea project, using the old Ant based build.
+idea {
+    module {
+        sourceDirs += file("src");
+        scopes = [ COMPILE: [plus:[project.configurations.compile]]]        
+
+        iml {
+            withXml {
+                def node = it.asNode()
+                def builder = NodeBuilder.newInstance();
+                builder.current = node;
+                builder.component(name: "FacetManager") {
+                    facet(type: "android", name: "Android") {
+                        configuration {
+                            option(name: "UPDATE_PROPERTY_FILES", value:"true")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+task execTestfairyUpload (type:Exec) {
+
+    def currentWorkingDir = System.getProperty("user.dir")
+    commandLine 'curl'
+    args testfairyURL,
+         '-F',
+         'api_key=' + testfairyAK,
+         '-F',
+         'apk_file=@' + currentWorkingDir + '/' + androidBuildPath + androidAppName + '.apk',
+         '-F',
+         'proguard_file=@' + currentWorkingDir + '/' + testfairyProguardPath,
+         '-F',
+         'testers_groups=' + testfairyTG,
+         '-F',
+         'metrics=' + testfairyMetrics,
+         '-F',
+         'max-duration=' + testfairyMD,
+         '-F',
+         'video=' + testfairyVideo,
+         '-F',
+         'video-quality=' + testfairyVQ,
+         '-F',
+         'video-rate=' + testfairyVR,
+         '-F',
+         'icon-watermark=' + testfairyIW,
+         '-F',
+         'comment=' + testfairyComment
+    //store the output instead of printing to the console:
+    standardOutput = new ByteArrayOutputStream()
+
+    //extension method execTestfairyUpload.output() can be used to obtain the output:
+    ext.output = {
+        return standardOutput.toString()
+    }
+
+}
+
+task testfairyUpload(dependsOn: execTestfairyUpload) << {
+    logger.info "${execTestfairyUpload.output()}"
+}
+
+// Control version
+task incrementMajorVersion(group: 'versioning', description: 'Increments project major version.') << {
+    String currentVersion = version.toString()
+    ++version.major
+    // Reset minor and patch
+    version.minor = 0
+    version.patch = 0
+    String newVersion = version.toString()
+    logger.info "Incrementing major project version: $currentVersion -> $newVersion"
+
+    ant.propertyfile(file: versionFile) {
+        entry(key: 'major', type: 'int', operation: '+', value: 1)
+        entry(key: 'minor', type: 'int', operation: '=', value: 0)
+        entry(key: 'patch', type: 'int', operation: '=', value: 0)
+    }
+}
+
+task incrementMinorVersion(group: 'versioning', description: 'Increments project minor version.') << {
+    String currentVersion = version.toString()
+    ++version.minor
+    // Reset patch
+    version.patch = 0
+    String newVersion = version.toString()
+    logger.info "Incrementing minor project version: $currentVersion -> $newVersion"
+
+    ant.propertyfile(file: versionFile) {
+        entry(key: 'minor', type: 'int', operation: '+', value: 1)
+        entry(key: 'patch', type: 'int', operation: '=', value: 0)
+    }
+}
+
+task incrementPatchVersion(group: 'versioning', description: 'Increments project patch version.') << {
+    String currentVersion = version.toString()
+    ++version.patch
+    String newVersion = version.toString()
+    logger.info "Incrementing patch project version: $currentVersion -> $newVersion"
+
+    ant.propertyfile(file: versionFile) {
+        entry(key: 'patch', type: 'int', operation: '+', value: 1)
+    }
+}
+
+task incrementBuildVersion(group: 'versioning', description: 'Increments project build version.') << {
+    String currentVersion = version.toString()
+    ++version.build
+    String newVersion = version.toString()
+    logger.info "Incrementing build project version: $currentVersion -> $newVersion"
+
+    ant.propertyfile(file: versionFile) {
+        entry(key: 'build', type: 'int', operation: '+', value: 1)
+    }
+}
+
+task updateAndroidManifestXML(group: 'versioning', description: 'Updates AndroidManifest.xml project file.') << {
+
+    def manifestFile = file("AndroidManifest.xml")
+
+    def pattern = java.util.regex.Pattern.compile("versionCode=\"(\\d+)\"")
+    def manifestContent = manifestFile.getText()
+    def matcher = pattern.matcher(manifestContent)
+    matcher.find()
+    manifestContent = matcher.replaceFirst("versionCode=\"" + version.getVersionCode() + "\"")
+
+    pattern = java.util.regex.Pattern.compile("versionName=\"(.*)\"")
+    matcher = pattern.matcher(manifestContent)
+    matcher.find()
+    manifestContent = matcher.replaceFirst("versionName=\"" + version.getVersionName() + "\"")
+
+    manifestFile.write(manifestContent)
+
+}
+
+// Autoincrement build versioning
+updateAndroidManifestXML.dependsOn incrementBuildVersion
+
+tasks.whenTaskAdded { task ->
+    if( task.name == 'preReleaseBuild' )
+        task.dependsOn updateAndroidManifestXML
+}
+
+// Class definition
+class ProjectVersion {
+
+    Integer major
+
+    Integer minor
+
+    Integer patch
+
+    Integer build
+
+    ProjectVersion(Integer major, Integer minor, Integer patch, Integer build) {
+        this.major = major
+        this.minor = minor
+        this.patch = patch
+        this.build = build
+    }
+
+    String getVersionName() {
+        this.major + "." + this.minor + "." + this.patch
+    }
+
+    String getVersionCode() {
+        Integer.parseInt(new Date().format('yyyyMMdd')) + this.build
+    }
+
+    @Override
+    String toString() {
+        this.getVersionName() + "_" + this.getVersionCode()
+    }
+}

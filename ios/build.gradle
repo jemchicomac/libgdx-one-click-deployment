@@ -1,0 +1,244 @@
+// Read current version from properties file
+ext.versionFile = file('version.properties')
+
+task loadVersion {
+    project.version = readVersion()
+}
+
+ProjectVersion readVersion() {
+    logger.quiet 'Reading the android version file.'
+
+    if (!versionFile.exists()) {
+        throw new GradleException("Required version file does not exit: $versionFile.canonicalPath")
+    }
+
+    Properties versionProps = new Properties()
+
+    versionFile.withInputStream { stream ->
+        versionProps.load(stream)
+    }
+
+    new ProjectVersion(versionProps.major.toInteger(), versionProps.minor.toInteger(), versionProps.patch.toInteger(), versionProps.build.toInteger())
+}
+
+sourceSets.main.java.srcDirs = [ "src/" ]
+
+sourceCompatibility = '1.7'
+[compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
+
+ext {
+	mainClassName = "com.jemchicomac.one-click-deployment.IOSLauncher"
+}
+
+// Extracts native libs (*.a) from the native-ios.jar and places them
+// under build/libs/ios/.
+task copyNatives << {
+  file("build/libs/ios/").mkdirs();
+  configurations.natives.files.each { jar ->
+    def outputDir = null
+    if (jar.name.endsWith("natives-ios.jar")) outputDir = file("build/libs/ios")
+    if (outputDir != null) {
+      copy {
+        from zipTree(jar)
+        into outputDir
+        include "*.a"
+      }
+    }
+  }
+}
+
+// Updates a robovm.xml file.
+task updateRoboVMXML << {
+  def xml = file('robovm.xml')
+
+  if (!xml.exists()) {
+    return
+  }
+  
+  // Find all native (*.a) libraries beneath libs
+  def libtree = fileTree(dir: 'build/libs', include: '**/*.a')
+  
+  def config = new groovy.util.XmlParser().parse(xml)
+  config.libs.each {libs ->
+      libs.children().clear()
+      libtree.each { File file ->
+          libs.appendNode('lib', 'build/libs/ios/' + file.getName())
+      }
+  }
+  
+  def writer = new FileWriter(xml)
+  def printer = new XmlNodePrinter(new PrintWriter(writer))
+  printer.setPreserveWhitespace true
+  printer.print(config)
+}
+
+task execTestflightZip (type:Exec) {
+
+    def currentWorkingDir = System.getProperty("user.dir")
+    commandLine '/usr/bin/zip'
+    args '-r',
+         currentWorkingDir + '/' + iosBuildPath + 'IOSLauncher.app.dSYM.zip',
+         currentWorkingDir + '/' + iosBuildPath + 'IOSLauncher.app.dSYM'
+    //store the output instead of printing to the console:
+    standardOutput = new ByteArrayOutputStream()
+
+    //extension method execTestflightDistribute.output() can be used to obtain the output:
+    ext.output = {
+        return standardOutput.toString()
+    }
+
+}
+
+task testflightZip(dependsOn: execTestflightZip) << {
+    logger.info "${execTestflightZip.output()}"
+}
+
+task execTestflightUpload (type:Exec, dependsOn: testflightZip) {
+
+    def currentWorkingDir = System.getProperty("user.dir")
+    commandLine 'curl'
+    args testflightURL,
+         '-F',
+         'file=@' + currentWorkingDir + '/' + iosBuildPath + iosAppName + '.ipa',
+         '-F',
+         'dsym=@' + currentWorkingDir + '/' + iosBuildPath + iosAppName + '.app.dSYM.zip',
+         '-F',
+         'api_token=' + testflightAT,
+         '-F',
+         'team_token=' + testflightTT,
+         '-F',
+         'notes=' + testflightDefaultNote,
+         '-F',
+         'notify=' + testflightNotify,
+         '-F',
+         'distribution_lists=' + testflightDL
+    //store the output instead of printing to the console:
+    standardOutput = new ByteArrayOutputStream()
+
+    //extension method execTestflightDistribute.output() can be used to obtain the output:
+    ext.output = {
+        return standardOutput.toString()
+    }
+
+}
+
+task testflightUpload(dependsOn: execTestflightUpload) << {
+    logger.info "${execTestflightUpload.output()}"
+}
+
+// Control version
+task incrementMajorVersion(group: 'versioning', description: 'Increments project major version.') << {
+    String currentVersion = version.toString()
+    ++version.major
+    // Reset minor and patch
+    version.minor = 0
+    version.patch = 0
+    String newVersion = version.toString()
+    logger.info "Incrementing major project version: $currentVersion -> $newVersion"
+
+    ant.propertyfile(file: versionFile) {
+        entry(key: 'major', type: 'int', operation: '+', value: 1)
+        entry(key: 'minor', type: 'int', operation: '=', value: 0)
+        entry(key: 'patch', type: 'int', operation: '=', value: 0)
+    }
+}
+
+task incrementMinorVersion(group: 'versioning', description: 'Increments project minor version.') << {
+    String currentVersion = version.toString()
+    ++version.minor
+    // Reset patch
+    version.patch = 0
+    String newVersion = version.toString()
+    logger.info "Incrementing minor project version: $currentVersion -> $newVersion"
+
+    ant.propertyfile(file: versionFile) {
+        entry(key: 'minor', type: 'int', operation: '+', value: 1)
+        entry(key: 'patch', type: 'int', operation: '=', value: 0)
+    }
+}
+
+task incrementPatchVersion(group: 'versioning', description: 'Increments project patch version.') << {
+    String currentVersion = version.toString()
+    ++version.patch
+    String newVersion = version.toString()
+    logger.info "Incrementing patch project version: $currentVersion -> $newVersion"
+
+    ant.propertyfile(file: versionFile) {
+        entry(key: 'patch', type: 'int', operation: '+', value: 1)
+    }
+}
+
+task incrementBuildVersion(group: 'versioning', description: 'Increments project build version.') << {
+    String currentVersion = version.toString()
+    ++version.build
+    String newVersion = version.toString()
+    logger.info "Incrementing build project version: $currentVersion -> $newVersion"
+
+    ant.propertyfile(file: versionFile) {
+        entry(key: 'build', type: 'int', operation: '+', value: 1)
+    }
+}
+
+// Update info.plist.xml
+task updateRoboVMProperties << {
+  
+    ant.propertyfile(file: robovmFile) {
+        entry(key: 'app.version', type: 'string', operation: '=', value: version.getVersionName())
+    }
+  
+    ant.propertyfile(file: robovmFile) {
+        entry(key: 'app.build', type: 'int', operation: '=', value: version.build.toString())
+    }
+  
+}
+
+updateRoboVMXML.dependsOn copyNatives
+build.dependsOn updateRoboVMXML
+tasks.eclipse.dependsOn updateRoboVMXML
+
+launchIPhoneSimulator.dependsOn build
+launchIPadSimulator.dependsOn build
+launchIOSDevice.dependsOn build
+
+// Autoincrement build versioning
+incrementBuildVersion.dependsOn build
+updateRoboVMProperties.dependsOn incrementBuildVersion
+createIPA.dependsOn updateRoboVMProperties
+
+
+eclipse.project {
+    name = appName + "-ios"
+    natures 'org.robovm.eclipse.RoboVMNature'
+}
+
+// Class definition
+class ProjectVersion {
+
+    Integer major
+
+    Integer minor
+
+    Integer patch
+
+    Integer build
+
+    ProjectVersion(Integer major, Integer minor, Integer patch, Integer build) {
+        this.major = major
+        this.minor = minor
+        this.patch = patch
+        this.build = build
+    }
+
+    String getVersionName() {
+        this.major + "." + this.minor + "." + this.patch
+    }
+
+    String getVersionCode() {
+        Integer.parseInt(new Date().format('yyyyMMdd')) + this.build
+    }
+
+    @Override
+    String toString() {
+        this.getVersionName() + "_" + this.getVersionCode()
+    }
+}
