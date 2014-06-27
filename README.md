@@ -133,7 +133,7 @@ patch=0
 build=0
 ```
 
-And a __global properties__ at the root of our project file look like this:
+And add define __global properties__ at the root of our project in your _gradle.properties_ file:
 
 ```
 # Testflight configuration
