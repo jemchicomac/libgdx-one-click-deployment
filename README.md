@@ -6,7 +6,6 @@ First we include this duplicate code in the _android/build.gradle_ and _ios/buil
  * A __versioning software reader__:
  
 ```
-#!java
 // Read current version from properties file
 ext.versionFile = file('version.properties')
 
@@ -34,7 +33,6 @@ ProjectVersion readVersion() {
  * __Auto-increment version tasks__:
  
 ```
-#!java
 // Control version
 task incrementMajorVersion(group: 'versioning', description: 'Increments project major version.') << {
     String currentVersion = version.toString()
@@ -92,7 +90,6 @@ task incrementBuildVersion(group: 'versioning', description: 'Increments project
  * At the end a __ProjectVersion Class Definition__:
  
 ```
-#!java
 // Class definition
 class ProjectVersion {
 	
@@ -130,7 +127,6 @@ class ProjectVersion {
 Then both in the _android_ and _ios_ we create two __properties files__ called `version.properties` that contains this:
 
 ```
-#!text
 major=0
 minor=0
 patch=0
@@ -140,7 +136,6 @@ build=0
 And a __global properties__ at the root of our project file look like this:
 
 ```
-#!text
 # Testflight configuration
 iosBuildPath=ios/build/robovm/
 iosAppName=IOSLauncher
@@ -171,7 +166,6 @@ Next we configure individual tasks for _android/build.gradle_.
 Locate project `android` and add a __signing configuration__ to sign our game with default android keystore values. It should look like this:
 
 ```
-#!java
 android {
     
 	// ...
@@ -196,7 +190,6 @@ android {
 Next do you insert a dependency before `preReleaseBuild` to auto-increment build version with each build.
 
 ```
-#!java
 task updateAndroidManifestXML(group: 'versioning', description: 'Updates AndroidManifest.xml project file.') << {
 	
     def manifestFile = file("AndroidManifest.xml")
@@ -228,7 +221,6 @@ tasks.whenTaskAdded { task ->
 And finally we include a task to upload and distribute our game using __testfairy__
 
 ```
-#!java
 task execTestfairyUpload (type:Exec) {
 	
 	def currentWorkingDir = System.getProperty("user.dir")
@@ -276,7 +268,6 @@ As we shall she below `updateRoboVMProperties` task will update `app.version` an
 Also `updateRoboVMProperties` task depends on a increment build version task:
 
 ```
-#!java
 - createIPA.dependsOn build
 
 + // Update info.plist.xml
@@ -301,7 +292,6 @@ Also `updateRoboVMProperties` task depends on a increment build version task:
 And also finally we include a task to __zip dSYM__, upload and distribute our game using __testflight__ in this occasion
 
 ```
-#!java
 task execTestflightZip (type:Exec) {
 	
 	def currentWorkingDir = System.getProperty("user.dir")
@@ -368,7 +358,6 @@ There are hundreds of tutorials on how to do this. Here's an [example](http://ww
 Make sure you have the [Mac environment](https://github.com/libgdx/libgdx/wiki/Gradle-on-the-Commandline) properly configured according to libGDX WIKI and here a set of examples:
 
 ```
-#!text
 ssh user@server
 // First increment minor version, increment build version, create *.ipa and distribute using testflight
 server:~ user$ ./gradlew ios:incrementMinorVersion ios:createIPA ios:testflightUpload
