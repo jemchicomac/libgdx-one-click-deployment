@@ -140,18 +140,18 @@ And a __global properties__ at the root of our project file look like this:
 iosBuildPath=ios/build/robovm/
 iosAppName=IOSLauncher
 testflightURL=http://testflightapp.com/api/builds.json
-testflightAT=
-testflightTT=
+testflightAT=YOUR_API_TOKEN
+testflightTT=YOUR_TEAM_TOKEN
 testflightDefaultNote=This build was uploaded via the upload API and Gradle
 testflightNotify=True
-testflightDL=<Distribute list names separates by commas>
+testflightDL=YOUR_DISTRIBUTE_LIST_NAMES_SEPARATES_BY_COMMAS
 # Testfairy configuration
 androidBuildPath=android/build/apk/
 testfairyURL=https://app.testfairy.com/api/upload
-testfairyAK=
+testfairyAK=YOUR_API_KEY
 androidAppName=android-release
 testfairyProguardPath=android/proguard-project.txt
-testfairyTG=<Distribute groups separates by commas>
+testfairyTG=YOUR_GROUP_NAMES_SEPARATES_BY_COMMAS
 testfairyMetrics=cpu,memory,network,logcat
 testfairyVideo=off
 testfairyMD=10m
