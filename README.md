@@ -187,7 +187,7 @@ android {
 }
 ```
 
-Next do you insert a dependency before `preReleaseBuild` to auto-increment build version with each build.
+Next you insert a dependency before `preReleaseBuild` to auto-increment build version with each build.
 
 ```
 task updateAndroidManifestXML(group: 'versioning', description: 'Updates AndroidManifest.xml project file.') << {
